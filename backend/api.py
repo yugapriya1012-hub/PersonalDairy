@@ -5,7 +5,7 @@ import os
 import uuid
 from typing import List
 from datetime import date
-from . import models, schemas, database, ai_utils
+import models, schemas, database, ai_utils
 
 router = APIRouter()
 

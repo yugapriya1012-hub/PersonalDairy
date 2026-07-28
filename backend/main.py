@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from . import models
-from .database import engine
+import models
+from database import engine
 
 # Create the database tables
 models.Base.metadata.create_all(bind=engine)
@@ -19,7 +19,7 @@ app.add_middleware(
 
 # Root route removed to allow static files to serve index.html
 
-from .api import router as api_router
+from api import router as api_router
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
