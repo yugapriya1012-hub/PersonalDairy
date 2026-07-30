@@ -12,6 +12,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
 import GlassCard from '../components/UI/GlassCard';
+import apiClient from '../api/apiClient';
 
 // MOCK DATA for rich UI display (Cleared for real usage)
 const MOCK_STATS = { subjects: 0, activePlans: 0, tasksCompleted: 0, studyHours: 0 };
@@ -71,24 +72,37 @@ export default function Planner() {
     return () => clearInterval(interval);
   }, [isTimerRunning, timeLeft]);
 
-  const onGeneratePlan = (data) => {
+  const onGeneratePlan = async (data) => {
     setIsGenerating(true);
-    // Simulate AI Generation
-    setTimeout(() => {
+    try {
+      const payload = {
+        subjects: data.subject,
+        topics: data.topics,
+        exam_date: data.examDate,
+        hours_per_day: parseFloat(data.hours) || 2.0
+      };
+      const res = await apiClient.post('/planner', payload);
+      
+      let timeline = [];
+      try {
+        timeline = JSON.parse(res.plan_text);
+      } catch (e) {
+        console.error("Failed to parse timeline JSON from AI", e, res.plan_text);
+      }
+      
       const newPlan = {
-        id: Date.now(),
+        id: res.id,
         ...data,
-        timeline: [
-          { week: 1, title: 'Basics & Fundamentals', hours: data.hours * 7 * 0.3, priority: 'High', completed: true },
-          { week: 2, title: 'Intermediate Concepts', hours: data.hours * 7 * 0.4, priority: 'Medium', completed: false },
-          { week: 3, title: 'Advanced Application', hours: data.hours * 7 * 0.5, priority: 'High', completed: false },
-          { week: 4, title: 'Mock Tests & Revision', hours: data.hours * 7 * 0.8, priority: 'Critical', completed: false },
-        ]
+        timeline: timeline
       };
       setPlans([newPlan, ...plans]);
-      setIsGenerating(false);
       reset();
-    }, 2000);
+    } catch (e) {
+      console.error("Failed to generate plan", e);
+      alert("Failed to generate study plan. Ensure backend is running and API key is set.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const formatTime = (secs) => {
@@ -109,6 +123,44 @@ export default function Planner() {
       setTasks([{ id: Date.now(), subject: 'General', topic, duration: '1h', priority: 'Medium', completed: false }, ...tasks]);
     }
   };
+
+  const handleEditTask = (taskId) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const newTopic = window.prompt("Edit task topic:", task.topic);
+    if (newTopic) {
+      setTasks(tasks.map(t => t.id === taskId ? { ...t, topic: newTopic } : t));
+    }
+  };
+
+  const handleDeleteTask = (taskId) => {
+    if (window.confirm("Delete this task?")) {
+      setTasks(tasks.filter(t => t.id !== taskId));
+    }
+  };
+
+  const handleDeletePlan = (planId) => {
+    if (window.confirm("Delete this active plan?")) {
+      setPlans(plans.filter(p => p.id !== planId));
+    }
+  };
+
+  const handleToggleTask = (taskId) => {
+    setTasks(tasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t));
+  };
+
+  const handleToggleTimelineItem = (planId, itemIndex) => {
+    setPlans(plans.map(p => {
+      if (p.id !== planId) return p;
+      const newTimeline = [...p.timeline];
+      newTimeline[itemIndex] = { ...newTimeline[itemIndex], completed: !newTimeline[itemIndex].completed };
+      return { ...p, timeline: newTimeline };
+    }));
+  };
+
+  const totalStudyHours = plans.reduce((acc, plan) => {
+    return acc + plan.timeline.reduce((itemAcc, item) => itemAcc + (item.completed ? (item.hours || 0) : 0), 0);
+  }, 0);
 
   const handleExport = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(plans));
@@ -181,7 +233,7 @@ export default function Planner() {
           { label: 'Total Subjects', val: subjects.length, icon: BookOpen, color: 'text-indigo-500', bg: 'bg-indigo-50' },
           { label: 'Active Plans', val: plans.length, icon: Target, color: 'text-rose-500', bg: 'bg-rose-50' },
           { label: 'Completed Tasks', val: tasks.filter(t => t.completed).length, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
-          { label: 'Study Hours', val: 0, icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50' },
+          { label: 'Study Hours', val: totalStudyHours.toFixed(1), icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50' },
         ].map((stat, i) => (
           <motion.div whileHover={{ y: -4 }} key={i}>
             <GlassCard className="p-5 flex items-center gap-4 hover:shadow-lg transition-shadow duration-300 border border-slate-200/60 bg-white/60">
@@ -220,6 +272,10 @@ export default function Planner() {
                   <label className="text-sm font-bold text-slate-700">Exam Date</label>
                   <input type="date" {...register("examDate", {required: true})} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all text-slate-700" />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-bold text-slate-700">Topics to Cover (Optional)</label>
+                <input {...register("topics")} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="e.g. Limits, Derivatives, Integrals" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -283,7 +339,10 @@ export default function Planner() {
                     <GlassCard className="p-6 border border-slate-200/60 shadow-lg shadow-slate-200/40">
                       <div className="flex justify-between items-start mb-6">
                         <div>
-                          <h3 className="text-2xl font-extrabold text-slate-800">{plan.subject}</h3>
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-2xl font-extrabold text-slate-800">{plan.subject}</h3>
+                            <button onClick={() => handleDeletePlan(plan.id)} className="text-slate-300 hover:text-red-500 transition-colors p-1" title="Delete Plan"><Trash2 size={18}/></button>
+                          </div>
                           <div className="flex gap-3 mt-2 text-sm font-semibold text-slate-500">
                             <span className="flex items-center gap-1"><CalendarDays size={14}/> Exam: {plan.examDate}</span>
                             <span className="flex items-center gap-1"><Clock size={14}/> {plan.hours}h / day</span>
@@ -295,13 +354,13 @@ export default function Planner() {
                       {/* Timeline */}
                       <div className="space-y-4 relative before:absolute before:inset-0 before:ml-[11px] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-indigo-500 before:to-purple-500">
                         {plan.timeline.map((item, idx) => (
-                          <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
+                          <div key={idx} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active cursor-pointer" onClick={() => handleToggleTimelineItem(plan.id, idx)}>
                             <div className="flex items-center justify-center w-6 h-6 rounded-full border-4 border-white bg-indigo-500 text-slate-50 shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2">
                               {item.completed ? <Check size={12}/> : <div className="w-2 h-2 bg-white rounded-full"/>}
                             </div>
                             <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 rounded-xl border border-slate-200/60 bg-white/80 shadow-sm hover:shadow-md transition-shadow">
                               <div className="flex justify-between items-center mb-1">
-                                <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider">Week {item.week}</span>
+                                <span className="text-xs font-bold text-indigo-500 uppercase tracking-wider">{item.period || `Week ${item.week}`}</span>
                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${item.priority === 'Critical' ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'}`}>{item.priority}</span>
                               </div>
                               <h4 className="font-bold text-slate-800 text-sm mb-2">{item.title}</h4>
@@ -329,11 +388,11 @@ export default function Planner() {
             
             <div className="space-y-3">
               {tasks.map(task => (
-                <div key={task.id} className="group flex items-center gap-3 p-4 bg-white/80 border border-slate-200/80 rounded-2xl shadow-sm hover:shadow-md transition-all cursor-pointer">
+                <div key={task.id} className="group flex items-center gap-3 p-4 bg-white/80 border border-slate-200/80 rounded-2xl shadow-sm hover:shadow-md transition-all">
                   <div className="cursor-grab text-slate-300 hover:text-slate-500">
                     <GripVertical size={20} />
                   </div>
-                  <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${task.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:border-emerald-400'}`}>
+                  <div onClick={() => handleToggleTask(task.id)} className={`cursor-pointer w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${task.completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:border-emerald-400'}`}>
                     {task.completed && <Check size={14} strokeWidth={3} />}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -345,8 +404,8 @@ export default function Planner() {
                     <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${task.priority === 'High' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'}`}>{task.priority}</span>
                   </div>
                   <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
-                    <button className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-md hover:bg-slate-100"><Edit2 size={16}/></button>
-                    <button className="p-1.5 text-slate-400 hover:text-red-500 rounded-md hover:bg-slate-100"><Trash2 size={16}/></button>
+                    <button onClick={() => handleEditTask(task.id)} className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-md hover:bg-slate-100"><Edit2 size={16}/></button>
+                    <button onClick={() => handleDeleteTask(task.id)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-md hover:bg-slate-100"><Trash2 size={16}/></button>
                   </div>
                 </div>
               ))}
@@ -389,20 +448,7 @@ export default function Planner() {
             </div>
           </GlassCard>
 
-          {/* 8. AI Recommendations */}
-          <GlassCard className="p-5 border border-indigo-100 bg-indigo-50/30">
-            <h3 className="font-bold text-indigo-900 flex items-center gap-2 mb-4"><BrainCircuit size={18} className="text-indigo-500"/> AI Insights</h3>
-            <div className="space-y-3">
-              <div className="p-3 bg-white/80 rounded-xl border border-indigo-100/50 shadow-sm flex items-start gap-3">
-                <TrendingUp size={16} className="text-emerald-500 mt-0.5 shrink-0"/>
-                <p className="text-sm font-medium text-slate-700">You study 30% more effectively between <strong className="text-indigo-600">7 PM–9 PM</strong>. Try scheduling Hard tasks then.</p>
-              </div>
-              <div className="p-3 bg-white/80 rounded-xl border border-rose-100/50 shadow-sm flex items-start gap-3">
-                <AlertTriangle size={16} className="text-rose-500 mt-0.5 shrink-0"/>
-                <p className="text-sm font-medium text-slate-700">Physics revision is overdue. Recommend 2 hours this weekend.</p>
-              </div>
-            </div>
-          </GlassCard>
+
 
           {/* 10. Weekly Progress Chart */}
           <GlassCard className="p-5">
@@ -486,15 +532,6 @@ export default function Planner() {
               ))}
             </div>
           </GlassCard>
-
-          {/* 14. Motivation Card */}
-          <div className="rounded-3xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-1 shadow-xl shadow-purple-500/20">
-            <div className="bg-white/10 backdrop-blur-md rounded-[22px] p-6 text-white text-center">
-              <Heart className="mx-auto mb-3 opacity-80" size={24} />
-              <p className="font-medium text-lg leading-snug drop-shadow-sm mb-2">"The beautiful thing about learning is that no one can take it away from you."</p>
-              <p className="text-xs font-bold uppercase tracking-wider text-white/70">B.B. King</p>
-            </div>
-          </div>
 
         </div>
       </div>

@@ -9,6 +9,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
 import GlassCard from '../components/UI/GlassCard';
+import apiClient from '../api/apiClient';
 
 // MOCK DATA (Cleared for real usage)
 const WEEKLY_XP = [];
@@ -132,18 +133,43 @@ export default function Challenges() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [rewardClaimed, setRewardClaimed] = useState(false);
   
-  const [streak, setStreak] = useLocalStorage('lifeos_streak', 0);
+  const [streak, setStreak] = useState(0);
   const [lastActive, setLastActive] = useLocalStorage('lifeos_last_active', '');
-  const [lifeScore, setLifeScore] = useLocalStorage('lifeos_score', 0);
+  const [lifeScore, setLifeScore] = useState(0);
   
   const [userXP, setUserXP] = useLocalStorage('lifeos_xp', 0);
   const [gamesPlayed, setGamesPlayed] = useLocalStorage('lifeos_games_played', 0);
   
-  const trackActivity = () => {
+  useEffect(() => {
+    const fetchStreak = async () => {
+      try {
+        const res = await apiClient.get('/user_streak');
+        setStreak(res.current_streak);
+        setLifeScore(res.points);
+      } catch (e) {
+        console.error('Failed to fetch streak', e);
+      }
+    };
+    fetchStreak();
+  }, []);
+
+  const trackActivity = async () => {
     const today = new Date().toDateString();
-    if (lastActive !== today) {
-      setStreak(prev => Number(prev || 0) + 1);
+    const raw = window.localStorage.getItem('lifeos_last_active');
+    let currentLastActive = '';
+    if (raw) {
+      try { currentLastActive = JSON.parse(raw); } catch(e) {}
+    }
+    
+    if (currentLastActive !== today) {
+      window.localStorage.setItem('lifeos_last_active', JSON.stringify(today));
       setLastActive(today);
+      try {
+        const res = await apiClient.post('/user_streak/update', { increment_streak: true, points_to_add: 0 });
+        setStreak(res.current_streak);
+      } catch (e) {
+        console.error('Failed to update streak', e);
+      }
     }
   };
 
@@ -155,6 +181,19 @@ export default function Challenges() {
   const [creativityScore, setCreativityScore] = useLocalStorage('lifeos_creativity', 0);
   const [achievementsCount, setAchievementsCount] = useLocalStorage('lifeos_achievements_count', 0);
   const [challengeDone, setChallengeDone] = useState(false);
+  const [dailyPrompt, setDailyPrompt] = useState('"Write a 3-sentence story about a time-traveling coin."');
+
+  useEffect(() => {
+    const prompts = [
+      '"Write a 3-sentence story about a time-traveling coin."',
+      '"Invent a new holiday and describe its main tradition."',
+      '"Describe a color to someone who has been blind since birth."',
+      '"What would you do if gravity stopped working for 10 minutes?"',
+      '"Write a haiku about your favorite food."',
+      '"Create a superhero whose power is extremely inconvenient."'
+    ];
+    setDailyPrompt(prompts[Math.floor(Math.random() * prompts.length)]);
+  }, []);
   const [quizState, setQuizState] = useState(null);
   const [currentQuestion, setCurrentQuestion] = useState(1);
   const [quizScore, setQuizScore] = useState(0);
@@ -333,10 +372,15 @@ export default function Challenges() {
   };
   
   // Confetti trigger
-  const triggerWin = () => {
+  const triggerWin = async () => {
     setShowConfetti(true);
     setTimeout(() => setShowConfetti(false), 5000);
-    setLifeScore(prev => prev + 10);
+    try {
+      const res = await apiClient.post('/user_streak/update', { increment_streak: false, points_to_add: 10 });
+      setLifeScore(res.points);
+    } catch (e) {
+      console.error('Failed to add points', e);
+    }
     trackActivity();
   };
 
@@ -352,6 +396,7 @@ export default function Challenges() {
     if (!challengeDone) {
       setChallengeDone(true);
       setUserXP(prev => prev + 50);
+      setCreativityScore(prev => prev + 10);
       triggerWin();
     }
   };
@@ -582,7 +627,7 @@ export default function Challenges() {
               { label: 'Games Played', val: gamesPlayed, icon: Play, color: 'text-indigo-500', bg: 'bg-indigo-50' },
               { label: 'Quizzes Done', val: quizzesDone, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50' },
               { label: 'Creativity Score', val: creativityScore, icon: Sparkles, color: 'text-amber-500', bg: 'bg-amber-50' },
-              { label: 'Achievements', val: achievementsCount, icon: Trophy, color: 'text-rose-500', bg: 'bg-rose-50' },
+              { label: 'Achievements Unlocked', val: [quizzesDone >= 5, gamesPlayed >= 10, creativityScore >= 50, userXP >= 500, quizzesDone >= 10, userXP >= 10000].filter(Boolean).length, icon: Trophy, color: 'text-rose-500', bg: 'bg-rose-50' },
             ].map((stat, i) => (
               <motion.div whileHover={{ y: -4, scale: 1.02 }} key={i}>
                 <GlassCard className="p-4 md:p-5 flex flex-col gap-3 border border-slate-200/60 bg-white/60 hover:shadow-lg transition-all duration-300">
@@ -607,8 +652,16 @@ export default function Challenges() {
                   <div className="flex items-center gap-2 text-indigo-300 font-bold text-sm uppercase tracking-wider mb-2">
                     <Target size={16}/> Daily AI Challenge
                   </div>
-                  <h3 className="text-2xl md:text-3xl font-black mb-3 leading-tight text-white">"Write a 3-sentence story about a time-traveling coin."</h3>
-                  <p className="text-indigo-200 text-sm max-w-md">Boost your lateral thinking by completing today's creative constraint.</p>
+                  <h3 className="text-2xl md:text-3xl font-black mb-3 leading-tight text-white">{dailyPrompt}</h3>
+                  <p className="text-indigo-200 text-sm max-w-md mb-4">Boost your lateral thinking by completing today's creative constraint.</p>
+                  
+                  {!challengeDone && (
+                    <textarea 
+                      className="w-full bg-indigo-900/40 border border-indigo-400/30 rounded-xl p-4 text-white placeholder-indigo-300/50 focus:outline-none focus:ring-2 focus:ring-indigo-400 resize-none"
+                      rows="3"
+                      placeholder="Once upon a time..."
+                    ></textarea>
+                  )}
                 </div>
                 <div className="mt-6 flex gap-3">
                   {challengeDone ? (
@@ -873,18 +926,18 @@ export default function Challenges() {
           <GlassCard className="p-5">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-slate-800 text-sm">Badges</h3>
-              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">24/50</span>
+              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{[quizzesDone >= 5, gamesPlayed >= 10, creativityScore >= 50, userXP >= 500, quizzesDone >= 10, userXP >= 10000].filter(Boolean).length}/6</span>
             </div>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { icon: '🏆', name: 'Quiz Master', unlocked: false, color: 'from-slate-200 to-slate-100' },
-                { icon: '🧠', name: 'Memory Genius', unlocked: false, color: 'from-slate-200 to-slate-100' },
-                { icon: '⚡', name: 'Fast Thinker', unlocked: false, color: 'from-slate-200 to-slate-100' },
-                { icon: '🔥', name: '30 Day Streak', unlocked: false, color: 'from-slate-200 to-slate-100' },
-                { icon: '🧩', name: 'Logic God', unlocked: false, color: 'from-slate-200 to-slate-100' },
-                { icon: '⭐', name: '10k XP Club', unlocked: false, color: 'from-slate-200 to-slate-100' },
+                { icon: '🎮', name: 'Quiz Master', unlocked: quizzesDone >= 5, color: 'from-indigo-400 to-indigo-300' },
+                { icon: '🧠', name: 'Memory Genius', unlocked: gamesPlayed >= 10, color: 'from-purple-400 to-purple-300' },
+                { icon: '⚡', name: 'Fast Thinker', unlocked: creativityScore >= 50, color: 'from-amber-400 to-amber-300' },
+                { icon: '🔥', name: 'Dedicated', unlocked: userXP >= 500, color: 'from-rose-400 to-rose-300' },
+                { icon: '🧩', name: 'Logic God', unlocked: quizzesDone >= 10, color: 'from-emerald-400 to-emerald-300' },
+                { icon: '💎', name: '10k XP Club', unlocked: userXP >= 10000, color: 'from-cyan-400 to-cyan-300' },
               ].map((badge, i) => (
-                <div key={i} className={`aspect-square rounded-xl flex flex-col items-center justify-center p-2 text-center bg-gradient-to-br ${badge.color} border ${badge.unlocked ? 'border-white shadow-sm' : 'border-slate-200 opacity-50 grayscale'} cursor-help relative group`}>
+                <div key={i} className={`aspect-square rounded-xl flex flex-col items-center justify-center p-2 text-center bg-gradient-to-br ${badge.unlocked ? badge.color : 'from-slate-200 to-slate-100 opacity-50 grayscale'} border ${badge.unlocked ? 'border-white shadow-sm' : 'border-slate-200'} cursor-help relative group`}>
                   <span className="text-2xl drop-shadow-sm mb-1">{badge.icon}</span>
                   <div className="absolute -top-10 left-1/2 -translate-x-1/2 scale-0 group-hover:scale-100 transition-transform bg-slate-800 text-white text-[10px] px-2 py-1 rounded shadow-lg whitespace-nowrap z-20 pointer-events-none font-bold">
                     {badge.name}

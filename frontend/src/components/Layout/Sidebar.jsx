@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Book, Trophy, CalendarCheck, Languages, Settings } from 'lucide-react';
+import { Home, Book, Trophy, CalendarCheck, Languages, Settings, Wallet, Calendar } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useUser } from '../../context/UserContext';
 
@@ -8,8 +8,10 @@ export default function Sidebar() {
   const navItems = [
     { name: 'Life Dashboard', path: '/dashboard', icon: Home },
     { name: 'AI Diary', path: '/diary', icon: Book },
+    { name: 'Expense Tracker', path: '/expenses', icon: Wallet },
     { name: 'Creative Challenges', path: '/challenges', icon: Trophy },
     { name: 'Study Planner', path: '/planner', icon: CalendarCheck },
+    { name: 'Habit History', path: '/history', icon: Calendar },
     { name: 'Settings', path: '/settings', icon: Settings },
   ];
 

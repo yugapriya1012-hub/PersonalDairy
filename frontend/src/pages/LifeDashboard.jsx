@@ -9,6 +9,7 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
   ResponsiveContainer, LineChart, Line, AreaChart, Area
 } from 'recharts';
+import apiClient from '../api/apiClient';
 
 const GlassCard = ({ children, className = '' }) => (
   <div className={`bg-white/70 backdrop-blur-md border border-slate-200/50 shadow-xl shadow-slate-200/20 rounded-2xl p-6 ${className}`}>
@@ -48,67 +49,77 @@ function useLocalStorage(key, initialValue) {
 }
 
 export default function LifeDashboard() {
-  const [lifeScore, setLifeScore] = useLocalStorage('lifeos_score', 0);
-  const [streak, setStreak] = useLocalStorage('lifeos_streak', 0);
+  const [lifeScore, setLifeScore] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [cupLevel, setCupLevel] = useState('none');
   const [studyHours, setStudyHours] = useLocalStorage('lifeos_study', 0);
   const [workoutMins, setWorkoutMins] = useLocalStorage('lifeos_workout', 0);
   const [sleepHours, setSleepHours] = useLocalStorage('lifeos_sleep', 0);
   const [waterGlasses, setWaterGlasses] = useLocalStorage('lifeos_water', 0);
   const [mood, setMood] = useLocalStorage('lifeos_mood', 'Neutral');
   const [productivity, setProductivity] = useLocalStorage('lifeos_prod', 0);
+  const [habitHistory, setHabitHistory] = useLocalStorage('lifeos_habit_history', []);
   
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
   const recognitionRef = useRef(null);
   
   // Expense Form State
-  const [expenseData, setExpenseData] = useLocalStorage('lifeos_expenseData', INITIAL_EXPENSE_DATA);
-  const [transactions, setTransactions] = useLocalStorage('lifeos_txns', []);
-  const [expenseAmount, setExpenseAmount] = useState('');
-  const [expenseCategory, setExpenseCategory] = useState('Food');
-  const [expenseDesc, setExpenseDesc] = useState('');
-  const [spentToday, setSpentToday] = useLocalStorage('lifeos_spent', 0);
+  const [spentToday, setSpentToday] = useState(0);
 
-  const handleAddExpense = () => {
-    if (!expenseAmount || isNaN(expenseAmount)) return;
-    
-    const amount = parseFloat(expenseAmount);
-    
-    // Find category and update its value
-    setExpenseData(prev => {
-      const newData = [...prev];
-      const categoryIndex = newData.findIndex(item => item.name === expenseCategory);
-      
-      if (categoryIndex >= 0) {
-        newData[categoryIndex] = {
-          ...newData[categoryIndex],
-          value: newData[categoryIndex].value + amount
-        };
-      } else {
-        const categoryColors = {
-          'Food': '#f43f5e',
-          'Transport': '#3b82f6',
-          'Shopping': '#8b5cf6',
-          'Health': '#10b981',
-          'Entertainment': '#f59e0b'
-        };
-        // If it's a new category
-        newData.push({ name: expenseCategory, value: amount, color: categoryColors[expenseCategory] || '#6366f1' });
+  useEffect(() => {
+    const fetchTodayExpenses = async () => {
+      try {
+        const res = await apiClient.get('/expenses');
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayTotal = (res || [])
+          .filter(t => t.date === todayStr)
+          .reduce((sum, t) => sum + t.amount, 0);
+        setSpentToday(todayTotal);
+      } catch (e) {
+        console.error('Failed to fetch today expenses', e);
       }
-      return newData;
+    };
+    fetchTodayExpenses();
+  }, []);
+
+  useEffect(() => {
+    const fetchStreakData = async () => {
+      try {
+        const res = await apiClient.get('/user_streak');
+        setStreak(res.current_streak);
+        setLifeScore(res.points);
+        setCupLevel(res.champion_cup_level);
+      } catch (e) {
+        console.error('Failed to fetch streak data', e);
+      }
+    };
+    fetchStreakData();
+  }, []);
+
+  const handleUpdateToday = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const newEntry = {
+      date: todayStr,
+      studyHours,
+      workoutMins,
+      sleepHours,
+      waterGlasses,
+      mood,
+      productivity
+    };
+
+    setHabitHistory(prev => {
+      const existingIdx = prev.findIndex(entry => entry.date === todayStr);
+      if (existingIdx >= 0) {
+        const updated = [...prev];
+        updated[existingIdx] = newEntry;
+        return updated;
+      } else {
+        return [...prev, newEntry];
+      }
     });
-
-    // Add to transaction history
-    setTransactions(prev => [
-      { id: Date.now(), amount, category: expenseCategory, desc: expenseDesc, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-      ...prev
-    ]);
-
-    setSpentToday(prev => prev + amount);
-
-    // Reset form
-    setExpenseAmount('');
-    setExpenseDesc('');
+    alert("Today's habits updated successfully!");
   };
 
   const handleVoiceRecord = () => {
@@ -204,6 +215,14 @@ export default function LifeDashboard() {
           <div className="px-4 py-2 bg-indigo-50 rounded-xl flex items-center gap-2 text-indigo-600 font-bold">
             <Zap size={18} /> Life Score: {lifeScore}
           </div>
+          {cupLevel !== 'none' && (
+            <div className="px-4 py-2 bg-amber-50 rounded-xl flex items-center gap-2 text-amber-600 font-bold border border-amber-200 uppercase text-xs">
+              {cupLevel === 'bronze' && '🥉 Bronze'}
+              {cupLevel === 'silver' && '🥈 Silver'}
+              {cupLevel === 'gold' && '🥇 Gold'}
+              {cupLevel === 'champion' && '🏆 Champion'}
+            </div>
+          )}
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-teal-500/20" title="AI Systems Active">
             <BrainCircuit size={20} />
           </div>
@@ -312,6 +331,13 @@ export default function LifeDashboard() {
                   </label>
                   <input type="range" min="0" max="12" step="0.5" value={sleepHours} onChange={(e)=>setSleepHours(e.target.value)} className="w-full accent-purple-600" />
                 </div>
+                <div>
+                  <label className="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                    <span>Productivity</span>
+                    <span className="text-amber-600">{productivity}/10</span>
+                  </label>
+                  <input type="range" min="0" max="10" step="1" value={productivity} onChange={(e)=>setProductivity(e.target.value)} className="w-full accent-amber-600" />
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -339,119 +365,17 @@ export default function LifeDashboard() {
                   </div>
                 </div>
 
-                <button className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl mt-4 hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20">
+                <button onClick={handleUpdateToday} className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl mt-4 hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20">
                   <Save size={18} /> Update Today's Record
+                </button>
+                <button onClick={() => window.location.href = '/history'} className="w-full py-3 bg-white text-indigo-600 border-2 border-indigo-100 font-bold rounded-xl mt-2 hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2">
+                  <Calendar size={18} /> View History
                 </button>
               </div>
             </div>
           </GlassCard>
 
-          {/* EXPENSE TRACKER */}
-          <GlassCard>
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold flex items-center gap-2 text-slate-800">
-                <Wallet className="text-emerald-500" /> Expense Manager
-              </h3>
-              <button className="text-sm font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg flex items-center gap-1 hover:bg-emerald-100">
-                <Download size={14} /> Export
-              </button>
-            </div>
 
-            <div className="grid md:grid-cols-2 gap-8">
-              <div>
-                <h4 className="font-bold text-slate-700 mb-4">Add Expense</h4>
-                <div className="space-y-4">
-                  <input 
-                    type="number" 
-                    value={expenseAmount}
-                    onChange={(e) => setExpenseAmount(e.target.value)}
-                    placeholder="Amount ($)" 
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500" 
-                  />
-                  <select 
-                    value={expenseCategory}
-                    onChange={(e) => setExpenseCategory(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="Food">Food</option>
-                    <option value="Transport">Transport</option>
-                    <option value="Shopping">Shopping</option>
-                    <option value="Health">Health</option>
-                    <option value="Entertainment">Entertainment</option>
-                  </select>
-                  <input 
-                    type="text" 
-                    value={expenseDesc}
-                    onChange={(e) => setExpenseDesc(e.target.value)}
-                    placeholder="Description" 
-                    className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500" 
-                  />
-                  <button 
-                    onClick={handleAddExpense}
-                    className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
-                  >
-                    <Plus size={18} /> Add Expense
-                  </button>
-                </div>
-
-                {/* Transaction History */}
-                {transactions.length > 0 && (
-                  <div className="mt-6">
-                    <h5 className="font-bold text-slate-700 mb-3 text-sm">Recent Transactions</h5>
-                    <div className="space-y-2 max-h-[150px] overflow-y-auto custom-scrollbar pr-2">
-                      {transactions.map(txn => (
-                        <div key={txn.id} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl">
-                          <div>
-                            <p className="font-bold text-slate-800 text-sm">{txn.category}</p>
-                            <p className="text-xs text-slate-500 truncate max-w-[150px]">{txn.desc || 'No description'}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="font-bold text-emerald-600">${txn.amount.toFixed(2)}</p>
-                            <p className="text-[10px] text-slate-400">{txn.time}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <div>
-                <h4 className="font-bold text-slate-700 mb-4">Spending Categories</h4>
-                <div className="h-[220px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={expenseData} innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                        {expenseData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            </div>
-            
-            <div className="mt-8 pt-8 border-t border-slate-100">
-              <h4 className="font-bold text-slate-700 mb-4">Weekly Trend</h4>
-              <div className="h-[200px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={WEEKLY_SPENDING}>
-                    <defs>
-                      <linearGradient id="colorAmt" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                    <RechartsTooltip />
-                    <Area type="monotone" dataKey="amount" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorAmt)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </GlassCard>
         </div>
 
         {/* SIDE COLUMN */}

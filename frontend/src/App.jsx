@@ -7,6 +7,7 @@ import Challenges from './pages/Challenges';
 import Planner from './pages/Planner';
 import Expenses from './pages/Expenses';
 import Settings from './pages/Settings';
+import History from './pages/History';
 import { UserProvider } from './context/UserContext';
 
 function App() {
@@ -26,6 +27,7 @@ function App() {
             <Route path="/tracker" element={<Tracker />} />
             <Route path="/expenses" element={<Expenses />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/history" element={<History />} />
           </Routes>
         </main>
       </div>

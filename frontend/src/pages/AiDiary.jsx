@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import apiClient from '../api/apiClient';
 import GlassCard from '../components/UI/GlassCard';
 import { 
   PenTool, Image as ImageIcon, Mic, MicOff, Save, 
@@ -20,7 +21,6 @@ export default function AiDiary() {
   const [isSaving, setIsSaving] = useState(false);
   const [location, setLocation] = useState('Locating...');
   const [weather, setWeather] = useState('Weather...');
-  const [aiInsights, setAiInsights] = useState(null);
 
   // Dashboard Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,11 +33,32 @@ export default function AiDiary() {
 
   // Load Initial Data
   useEffect(() => {
-    setDate(new Date().toISOString().split('T')[0]);
-    const stored = JSON.parse(localStorage.getItem('react_ai_diary')) || [];
-    setEntries(stored);
+    const now = new Date();
+    const localDateStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    setDate(localDateStr);
+    fetchEntries();
     fetchLocationAndWeather();
   }, []);
+
+  const fetchEntries = async () => {
+    try {
+      const res = await apiClient.get('/diary');
+      const formatted = (res || []).map(e => ({
+        id: e.id,
+        date: e.date,
+        mood: e.mood,
+        htmlContent: e.content,
+        plainText: e.content,
+        tags: e.tags ? e.tags.split(',') : [],
+        imagePreview: e.image_path,
+        summary: e.summary,
+        timestamp: e.created_at
+      }));
+      setEntries(formatted);
+    } catch (e) {
+      console.error('Failed to load diary entries', e);
+    }
+  };
 
   const fetchLocationAndWeather = () => {
     if ("geolocation" in navigator) {
@@ -108,99 +129,46 @@ export default function AiDiary() {
     }
   };
 
-  const callOpenAI = async (promptText, systemPrompt) => {
-    const apiKey = localStorage.getItem('openai_api_key') || 'mock';
-    if (apiKey === 'mock') {
-      console.warn("No OpenAI API key found in Settings. Using mock response.");
-      return "This is a mock AI response. Please set your key in Settings.";
-    }
-
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "gpt-3.5-turbo",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: promptText }
-          ]
-        })
-      });
-      const data = await res.json();
-      return data.choices[0].message.content;
-    } catch(e) {
-      console.error(e);
-      return "AI Unavailable";
-    }
-  };
-
-  const generateAIPrompt = async () => {
-    const promptText = await callOpenAI("Give me one short thought-provoking journaling prompt.", "You are a journaling assistant. Return only the prompt string.");
-    if (editorRef.current) {
-      editorRef.current.innerHTML += `<strong>AI Prompt:</strong> ${promptText}<br><br>`;
-    }
-  };
-
   const handleSave = async () => {
     const htmlContent = editorRef.current?.innerHTML.trim();
     const plainText = editorRef.current?.innerText.trim();
     if (!plainText) return alert("Write something first!");
 
     setIsSaving(true);
-    let summary = "A brief thought.";
-    let reflection = "Keep reflecting!";
 
-    if (plainText.length > 10) {
-      let analysis = await callOpenAI(`Analyze:\n\n${plainText}`, "Return JSON with 'summary' (1 line) and 'reflection' (warm 2 line advice).");
-      try {
-        analysis = analysis.replace(/^```json\s*/, '').replace(/```$/, '');
-        const parsed = JSON.parse(analysis);
-        summary = parsed.summary || summary;
-        reflection = parsed.reflection || reflection;
-      } catch(e) {
-        reflection = analysis; // fallback
-      }
+    try {
+      await apiClient.post('/diary', {
+        content: htmlContent,
+        date,
+        mood,
+        tags: tags.join(','),
+        image_path: imagePreview
+      });
+      
+      // Refresh entries after save
+      await fetchEntries();
+      
+      // Reset
+      if (editorRef.current) editorRef.current.innerHTML = '';
+      setTags([]);
+      setImagePreview(null);
+      setAudioUrl(null);
+    } catch (e) {
+      console.error("Failed to save entry", e);
+      alert("Failed to save entry to database.");
+    } finally {
+      setIsSaving(false);
     }
-
-    // Convert audioBlob to base64 if needed for localstorage MVP, but for size limits we might just skip audio base64 in localstorage.
-    // We'll keep audio URL for the session, but realistically audio should be uploaded to a backend.
-    
-    const newEntry = {
-      id: Date.now().toString(),
-      date,
-      mood,
-      htmlContent,
-      plainText,
-      tags,
-      imagePreview,
-      summary,
-      reflection,
-      timestamp: Date.now()
-    };
-
-    const updated = [newEntry, ...entries];
-    setEntries(updated);
-    localStorage.setItem('react_ai_diary', JSON.stringify(updated));
-
-    setAiInsights({ summary, reflection });
-    setIsSaving(false);
-    
-    // Reset
-    if (editorRef.current) editorRef.current.innerHTML = '';
-    setTags([]);
-    setImagePreview(null);
-    setAudioUrl(null);
   };
 
-  const deleteEntry = (id) => {
+  const deleteEntry = async (id) => {
     if(window.confirm("Delete entry?")) {
-      const updated = entries.filter(e => e.id !== id);
-      setEntries(updated);
-      localStorage.setItem('react_ai_diary', JSON.stringify(updated));
+      try {
+        await apiClient.delete(`/diary/${id}`);
+        setEntries(prev => prev.filter(e => e.id !== id));
+      } catch (e) {
+        console.error("Failed to delete", e);
+      }
     }
   };
 
@@ -237,9 +205,6 @@ export default function AiDiary() {
             <span className="flex items-center gap-1"><CloudSun size={14}/> {weather}</span>
           </div>
         </div>
-        <button onClick={generateAIPrompt} className="px-5 py-2.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-xl font-medium transition-colors flex items-center gap-2 shadow-sm">
-          <Sparkles size={18} /> Daily AI Prompt
-        </button>
       </header>
 
       {/* Editor */}
@@ -322,22 +287,11 @@ export default function AiDiary() {
           )}
         </div>
 
-        {/* AI Insights display after save */}
-        <AnimatePresence>
-          {aiInsights && (
-            <motion.div initial={{opacity:0, height:0}} animate={{opacity:1, height:'auto'}} className="bg-indigo-50 border-l-4 border-indigo-500 p-4 rounded-r-xl">
-              <h4 className="text-indigo-800 font-bold flex items-center gap-2 mb-2"><Sparkles size={16}/> AI Insights</h4>
-              <p className="text-sm text-indigo-900 mb-1"><strong>Summary:</strong> {aiInsights.summary}</p>
-              <p className="text-sm text-indigo-900"><strong>Reflection:</strong> {aiInsights.reflection}</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <div className="flex justify-between items-center pt-4 border-t border-slate-100">
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="px-4 py-2 rounded-xl border border-slate-200 focus:outline-none bg-white/50 text-slate-700 font-medium" />
           <button onClick={handleSave} disabled={isSaving} className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-medium shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transition-all flex items-center gap-2 disabled:opacity-70">
             {isSaving ? <Sparkles className="animate-spin" size={18} /> : <Save size={18} />} 
-            {isSaving ? 'Analyzing...' : 'Save & Analyze'}
+            {isSaving ? 'Saving...' : 'Save Entry'}
           </button>
         </div>
       </GlassCard>
@@ -361,20 +315,57 @@ export default function AiDiary() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
           {/* Mini Calendar */}
           <GlassCard className="col-span-1 p-4 hidden md:block">
-            <h3 className="font-bold text-slate-700 flex items-center justify-center gap-2 mb-4"><Calendar size={18}/> Activity</h3>
-            <div className="grid grid-cols-7 gap-1 text-center text-sm">
-              {['S','M','T','W','T','F','S'].map((d,i) => <div key={i} className="text-slate-400 font-semibold mb-1">{d}</div>)}
-              {Array.from({length: new Date(new Date().getFullYear(), new Date().getMonth(), 1).getDay()}).map((_,i) => <div key={`pad-${i}`}/>)}
-              {Array.from({length: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()}).map((_,i) => {
-                const dStr = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;
-                const hasEntry = entries.some(e => e.date === dStr);
-                return (
-                  <div key={i} className={`aspect-square flex items-center justify-center rounded-full text-xs transition-colors ${hasEntry ? 'bg-indigo-100 text-indigo-700 font-bold border border-indigo-200' : 'text-slate-600 hover:bg-slate-100'}`}>
-                    {i+1}
+            {(() => {
+              let year, month;
+              if (date) {
+                const [y, m] = date.split('-');
+                year = parseInt(y, 10);
+                month = parseInt(m, 10) - 1;
+              } else {
+                const now = new Date();
+                year = now.getFullYear();
+                month = now.getMonth();
+              }
+              const firstDay = new Date(year, month, 1).getDay();
+              const daysInMonth = new Date(year, month + 1, 0).getDate();
+              const now = new Date();
+              const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+              
+              const monthName = new Date(year, month).toLocaleString('default', { month: 'long', year: 'numeric' });
+
+              return (
+                <>
+                  <h3 className="font-bold text-slate-700 flex items-center justify-center gap-2 mb-4"><Calendar size={18}/> {monthName}</h3>
+                  <div className="grid grid-cols-7 gap-1 text-center text-sm">
+                    {['S','M','T','W','T','F','S'].map((d,i) => <div key={i} className="text-slate-400 font-semibold mb-1">{d}</div>)}
+                    {Array.from({length: firstDay}).map((_,i) => <div key={`pad-${i}`}/>)}
+                    {Array.from({length: daysInMonth}).map((_,i) => {
+                      const dStr = `${year}-${String(month+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;
+                      const hasEntry = entries.some(e => e.date === dStr);
+                      const isSelected = date === dStr;
+                      const isToday = todayStr === dStr;
+                      
+                      return (
+                        <button 
+                          key={i}
+                          onClick={() => setDate(dStr)}
+                          className={`aspect-square flex flex-col items-center justify-center rounded-full text-xs transition-all relative cursor-pointer
+                            ${isSelected ? 'bg-indigo-600 text-white font-bold shadow-md' : 
+                              isToday ? 'bg-indigo-100 text-indigo-800 font-bold border border-indigo-300' :
+                              'text-slate-600 hover:bg-slate-100'}
+                          `}
+                        >
+                          <span className={hasEntry ? '-mt-1' : ''}>{i+1}</span>
+                          {hasEntry && (
+                            <span className={`absolute bottom-1.5 w-1 h-1 rounded-full ${isSelected ? 'bg-white' : 'bg-indigo-500'}`}></span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                </>
+              );
+            })()}
           </GlassCard>
 
           {/* Entry Cards */}
@@ -399,7 +390,11 @@ export default function AiDiary() {
                       </div>
                     )}
                     <div className="flex justify-between items-center mt-2 pt-3 border-t border-slate-100">
-                      <span className="text-xs font-semibold text-purple-600 flex items-center gap-1"><Sparkles size={12}/> {entry.summary}</span>
+                      <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                        {entry.summary === 'A brief thought.' 
+                          ? (entry.plainText?.length > 40 ? entry.plainText.substring(0, 40) + '...' : entry.plainText) 
+                          : entry.summary}
+                      </span>
                       <button onClick={() => deleteEntry(entry.id)} className="text-slate-400 hover:text-red-500 transition-colors p-1"><Trash size={16}/></button>
                     </div>
                   </GlassCard>
