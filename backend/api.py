@@ -88,12 +88,22 @@ async def upload_image(file: UploadFile = File(...)):
 def get_diary_entries(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     return db.query(models.DiaryEntry).order_by(models.DiaryEntry.date.desc()).offset(skip).limit(limit).all()
 
+@router.delete("/api/diary/{entry_id}")
+def delete_diary_entry(entry_id: int, db: Session = Depends(get_db)):
+    db_entry = db.query(models.DiaryEntry).filter(models.DiaryEntry.id == entry_id).first()
+    if not db_entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    db.delete(db_entry)
+    db.commit()
+    return {"status": "success"}
+
 # --- Study Planner ---
 @router.post("/api/planner", response_model=schemas.StudyPlanResponse)
 def create_study_plan(plan: schemas.StudyPlanCreate, db: Session = Depends(get_db)):
-    plan_text = ai_utils.generate_study_plan(plan.subjects, str(plan.exam_date))
+    plan_text = ai_utils.generate_study_plan(plan.subjects, plan.topics, str(plan.exam_date), plan.hours_per_day)
     db_plan = models.StudyPlan(
         subjects=plan.subjects,
+        topics=plan.topics,
         exam_date=plan.exam_date,
         plan_text=plan_text
     )
@@ -157,3 +167,49 @@ def save_completed_challenge(challenge: schemas.ChallengeEntryCreate, db: Sessio
 @router.get("/api/completed_challenges", response_model=List[schemas.ChallengeEntryResponse])
 def get_completed_challenges(db: Session = Depends(get_db)):
     return db.query(models.ChallengeEntry).order_by(models.ChallengeEntry.date.desc()).all()
+
+# --- Champion Cup & Streak ---
+@router.get("/api/user_streak", response_model=schemas.UserStreakResponse)
+def get_user_streak(db: Session = Depends(get_db)):
+    streak = db.query(models.UserStreak).first()
+    if not streak:
+        raise HTTPException(status_code=404, detail="Streak data not found")
+    return streak
+
+@router.post("/api/user_streak/update", response_model=schemas.UserStreakResponse)
+def update_user_streak(update: schemas.UserStreakUpdate, db: Session = Depends(get_db)):
+    streak = db.query(models.UserStreak).first()
+    if not streak:
+        raise HTTPException(status_code=404, detail="Streak data not found")
+        
+    # Update stats
+    streak.points += update.points_to_add
+    if update.increment_streak:
+        streak.current_streak += 1
+        streak.total_completed_days += 1
+        if streak.current_streak > streak.longest_streak:
+            streak.longest_streak = streak.current_streak
+            
+    # Evaluate Champion Cup unlocks
+    cups = db.query(models.ChampionCup).order_by(models.ChampionCup.required_points.desc()).all()
+    
+    for cup in cups:
+        meets_streak = streak.current_streak >= cup.required_streak_days or streak.longest_streak >= cup.required_streak_days
+        meets_points = streak.points >= cup.required_points
+        
+        if meets_streak and meets_points and streak.champion_cup_level != cup.name:
+            # Check if this cup is a higher tier than current
+            current_idx = next((i for i, c in enumerate(cups) if c.name == streak.champion_cup_level), len(cups))
+            new_idx = next((i for i, c in enumerate(cups) if c.name == cup.name), len(cups))
+            
+            if new_idx < current_idx: # cups are ordered desc, so smaller index is higher tier
+                import datetime
+                streak.champion_cup_level = cup.name
+                streak.champion_cup_status = "unlocked"
+                streak.champion_cup_unlocked_date = datetime.datetime.utcnow()
+                streak.total_cups_earned += 1
+                break
+                
+    db.commit()
+    db.refresh(streak)
+    return streak

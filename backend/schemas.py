@@ -42,10 +42,11 @@ class DiaryEntryResponse(DiaryEntryBase):
 
 class StudyPlanBase(BaseModel):
     subjects: str
+    topics: Optional[str] = None
     exam_date: date
 
 class StudyPlanCreate(StudyPlanBase):
-    pass
+    hours_per_day: float = 2.0
 
 class StudyPlanResponse(StudyPlanBase):
     id: int
@@ -130,3 +131,36 @@ class ChallengeEntryResponse(ChallengeEntryCreate):
     
     class Config:
         from_attributes = True
+
+class ChampionCupBase(BaseModel):
+    name: str
+    required_streak_days: int
+    required_points: int
+    reward_badge: str
+
+class ChampionCupResponse(ChampionCupBase):
+    id: int
+    
+    class Config:
+        from_attributes = True
+
+class UserStreakBase(BaseModel):
+    current_streak: int
+    longest_streak: int
+    total_completed_days: int
+    points: int
+    champion_cup_status: str
+    champion_cup_level: str
+    champion_cup_unlocked_date: Optional[datetime] = None
+    total_cups_earned: int
+
+class UserStreakResponse(UserStreakBase):
+    id: int
+    
+    class Config:
+        from_attributes = True
+
+class UserStreakUpdate(BaseModel):
+    points_to_add: int = 0
+    increment_streak: bool = False
+

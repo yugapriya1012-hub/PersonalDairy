@@ -21,6 +21,7 @@ class StudyPlan(Base):
     __tablename__ = "study_plans"
     id = Column(Integer, primary_key=True, index=True)
     subjects = Column(String, index=True)
+    topics = Column(String, nullable=True)
     exam_date = Column(Date)
     plan_text = Column(String) # AI generated plan
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -61,3 +62,24 @@ class ChallengeEntry(Base):
     date = Column(Date, index=True)
     challenge_text = Column(String)
     response_text = Column(String)
+
+class ChampionCup(Base):
+    __tablename__ = "champion_cups"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True) # bronze, silver, gold, champion
+    required_streak_days = Column(Integer)
+    required_points = Column(Integer)
+    reward_badge = Column(String)
+
+class UserStreak(Base):
+    __tablename__ = "user_streaks"
+    id = Column(Integer, primary_key=True, index=True)
+    current_streak = Column(Integer, default=0)
+    longest_streak = Column(Integer, default=0)
+    total_completed_days = Column(Integer, default=0)
+    points = Column(Integer, default=0)
+    champion_cup_status = Column(String, default="locked", index=True)
+    champion_cup_level = Column(String, default="none", index=True)
+    champion_cup_unlocked_date = Column(DateTime, nullable=True)
+    total_cups_earned = Column(Integer, default=0)
+
