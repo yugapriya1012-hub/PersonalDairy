@@ -52,13 +52,13 @@ export default function LifeDashboard() {
   const [lifeScore, setLifeScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [cupLevel, setCupLevel] = useState('none');
-  const [studyHours, setStudyHours] = useLocalStorage('lifeos_study', 0);
-  const [workoutMins, setWorkoutMins] = useLocalStorage('lifeos_workout', 0);
-  const [sleepHours, setSleepHours] = useLocalStorage('lifeos_sleep', 0);
-  const [waterGlasses, setWaterGlasses] = useLocalStorage('lifeos_water', 0);
-  const [mood, setMood] = useLocalStorage('lifeos_mood', 'Neutral');
-  const [productivity, setProductivity] = useLocalStorage('lifeos_prod', 0);
-  const [habitHistory, setHabitHistory] = useLocalStorage('lifeos_habit_history', []);
+  const [studyHours, setStudyHours] = useState(0);
+  const [workoutMins, setWorkoutMins] = useState(0);
+  const [sleepHours, setSleepHours] = useState(0);
+  const [waterGlasses, setWaterGlasses] = useState(0);
+  const [mood, setMood] = useState('Neutral');
+  const [productivity, setProductivity] = useState(0);
+  const [habitHistory, setHabitHistory] = useState([]);
   
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -80,7 +80,23 @@ export default function LifeDashboard() {
         console.error('Failed to fetch today expenses', e);
       }
     };
+    const fetchTodayTracker = async () => {
+      try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const res = await apiClient.get(`/tracker/${todayStr}`);
+        if (res) {
+          setStudyHours(res.study_hours || 0);
+          setWorkoutMins(res.workout_minutes || 0);
+          setSleepHours(res.sleep_hours || 0);
+          setWaterGlasses(res.water_glasses || 0);
+          setProductivity(res.productivity_score || 0);
+        }
+      } catch (e) {
+        console.log("No tracker found for today yet.");
+      }
+    };
     fetchTodayExpenses();
+    fetchTodayTracker();
   }, []);
 
   useEffect(() => {
@@ -97,29 +113,22 @@ export default function LifeDashboard() {
     fetchStreakData();
   }, []);
 
-  const handleUpdateToday = () => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const newEntry = {
-      date: todayStr,
-      studyHours,
-      workoutMins,
-      sleepHours,
-      waterGlasses,
-      mood,
-      productivity
-    };
-
-    setHabitHistory(prev => {
-      const existingIdx = prev.findIndex(entry => entry.date === todayStr);
-      if (existingIdx >= 0) {
-        const updated = [...prev];
-        updated[existingIdx] = newEntry;
-        return updated;
-      } else {
-        return [...prev, newEntry];
-      }
-    });
-    alert("Today's habits updated successfully!");
+  const handleUpdateToday = async () => {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      await apiClient.post('/tracker', {
+        date: todayStr,
+        study_hours: parseFloat(studyHours),
+        workout_minutes: parseInt(workoutMins, 10),
+        sleep_hours: parseFloat(sleepHours),
+        water_glasses: parseInt(waterGlasses, 10),
+        productivity_score: parseInt(productivity, 10)
+      });
+      alert("Today's habits successfully saved to the database!");
+    } catch (e) {
+      console.error("Failed to update habits", e);
+      alert("Failed to save. Make sure backend is connected.");
+    }
   };
 
   const handleVoiceRecord = () => {

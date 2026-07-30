@@ -40,12 +40,23 @@ from fastapi.staticfiles import StaticFiles
 
 app.include_router(api_router)
 
-# Mount the frontend directory to serve static files (HTML, CSS, JS)
+# Mount the frontend directory to serve static files (HTML, CSS, JS) if it exists
 import os
 frontend_path = os.path.join(os.path.dirname(__file__), "../frontend")
-app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+else:
+    @app.get("/")
+    def read_root():
+        return {"status": "LifeOS API is running on Vercel!"}
 
 # Create uploads directory and mount it
 uploads_path = os.path.join(os.path.dirname(__file__), "uploads")
-os.makedirs(uploads_path, exist_ok=True)
+try:
+    os.makedirs(uploads_path, exist_ok=True)
+except OSError:
+    # Fallback for serverless read-only environments
+    uploads_path = "/tmp/uploads"
+    os.makedirs(uploads_path, exist_ok=True)
+
 app.mount("/uploads", StaticFiles(directory=uploads_path), name="uploads")
