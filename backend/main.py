@@ -12,7 +12,7 @@ app = FastAPI(title="LifeOS AI API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # For development purposes
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
